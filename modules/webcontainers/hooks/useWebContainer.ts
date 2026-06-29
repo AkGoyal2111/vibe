@@ -6,18 +6,18 @@ interface UseWebContainerProps {
   templateData: TemplateFolder;
 }
 
-interface UseWebContaierReturn {
+interface UseWebContainerReturn {
   serverUrl: string | null;
   isLoading: boolean;
   error: string | null;
   instance: WebContainer | null;
   writeFileSync: (path: string, content: string) => Promise<void>;
-  destory: () => void;
+  destroy: () => void;
 }
 
 export const useWebContainer = ({
   templateData,
-}: UseWebContainerProps): UseWebContaierReturn => {
+}: UseWebContainerProps): UseWebContainerReturn => {
   const [serverUrl, setServerUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,7 +82,7 @@ export const useWebContainer = ({
     [instance]
   );
 
-  const destory = useCallback(()=>{
+  const destroy = useCallback(()=>{
     if(instance){
         instance.teardown()
         setInstance(null);
@@ -90,5 +90,5 @@ export const useWebContainer = ({
     }
   },[instance])
 
-  return {serverUrl , isLoading , error , instance , writeFileSync , destory}
+  return {serverUrl , isLoading , error , instance , writeFileSync , destroy}
 };

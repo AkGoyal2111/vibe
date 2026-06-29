@@ -27,7 +27,7 @@ model User {
   accounts Account[]
   role     UserRole  @default(USER)
 
-  myPlaground Playground[]
+  myPlayground Playground[]
   staredPlayground StarMark[]
   chatMessages ChatMessage[]
 
@@ -104,7 +104,7 @@ model TemplateFile {
 model ChatMessage {
   id  String @id @default(cuid()) @map("_id")
   userId String 
-  role   String  // "user" or "assitant"
+  role   String  // "user" or "assistant"
   content String
   createdAt DateTime  @default(now())
 
