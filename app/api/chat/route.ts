@@ -1,6 +1,14 @@
-import { db } from "@/lib/db";
-import { error } from "console";
 import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@/auth";
+import {
+  RateLimiter,
+  getClientIdentifier,
+  rateLimitHeaders,
+} from "@/lib/rate-limit";
+
+// Allow up to 20 chat messages per minute per user. AI calls are expensive,
+// so this protects both our Gemini quota and the service from abuse.
+const chatLimiter = new RateLimiter({ limit: 20, windowMs: 60_000 });
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -75,6 +83,25 @@ Always provide clear, practical answers. Use proper code formatting when showing
 
 export async function POST(req: NextRequest) {
   try {
+    // Require an authenticated session before touching the AI provider.
+    const session = await auth();
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { error: "Unauthorized. Please sign in to use the AI assistant." },
+        { status: 401 }
+      );
+    }
+
+    // Throttle per user to prevent runaway Gemini usage.
+    const identifier = getClientIdentifier(req, session.user.id);
+    const rate = chatLimiter.check(identifier);
+    if (!rate.success) {
+      return NextResponse.json(
+        { error: "Too many requests. Please slow down and try again shortly." },
+        { status: 429, headers: rateLimitHeaders(rate) }
+      );
+    }
+
     const body: ChatRequest = await req.json();
     const { message, history = [] } = body;
 
@@ -109,12 +136,13 @@ export async function POST(req: NextRequest) {
 
     const aiResponse = await generateAIResponse(messages);
 
-
-
-    return NextResponse.json({
-      response: aiResponse,
-      timestamp: new Date().toISOString(),
-    });
+    return NextResponse.json(
+      {
+        response: aiResponse,
+        timestamp: new Date().toISOString(),
+      },
+      { headers: rateLimitHeaders(rate) }
+    );
   } catch (error) {
     console.error("Chat API Error:", error);
 
