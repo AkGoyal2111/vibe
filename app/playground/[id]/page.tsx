@@ -44,6 +44,7 @@ import {
 import { useCollaboration } from "@/modules/collaboration/hooks/useCollaboration";
 import CollaboratorsPresence from "@/modules/collaboration/components/collaborators-presence";
 import ShareButton from "@/modules/collaboration/components/share-button";
+import CollaborationPanel from "@/modules/collaboration/components/collaboration-panel";
 import type { RemoteCodeChange } from "@/modules/collaboration/types";
 import { useCurrentUser } from "@/modules/auth/hooks/use-current-user";
 import {
@@ -53,6 +54,7 @@ import {
   FolderOpen,
   Save,
   Settings,
+  Users,
   X,
 } from "lucide-react";
 import { useParams } from "next/navigation";
@@ -68,6 +70,7 @@ import { toast } from "sonner";
 const MainPlaygroundPage = () => {
   const { id } = useParams<{ id: string }>();
   const [isPreviewVisible, setIsPreviewVisible] = useState(true);
+  const [isCollabPanelOpen, setIsCollabPanelOpen] = useState(false);
 
   // WebContainers need a cross-origin-isolated Chromium browser. Detect support
   // on the client so we can show a friendly fallback instead of a hard crash.
@@ -460,6 +463,14 @@ const MainPlaygroundPage = () => {
                   isConnected={isConnected}
                 />
                 <ShareButton />
+                <Button
+                  size="sm"
+                  variant={isCollabPanelOpen ? "secondary" : "outline"}
+                  onClick={() => setIsCollabPanelOpen((v) => !v)}
+                >
+                  <Users className="mr-2 h-4 w-4" />
+                  Collaborate
+                </Button>
               </div>
 
               <div className="flex items-center gap-1">
@@ -647,6 +658,15 @@ const MainPlaygroundPage = () => {
               </div>
             )}
           </div>
+
+          <CollaborationPanel
+            roomId={id}
+            open={isCollabPanelOpen}
+            onClose={() => setIsCollabPanelOpen(false)}
+            enabled={isConnected}
+            collaborators={collaborators}
+            isConnected={isConnected}
+          />
         </SidebarInset>
       </>
     </TooltipProvider>
