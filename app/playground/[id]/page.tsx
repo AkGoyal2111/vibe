@@ -41,6 +41,11 @@ import {
   isWebContainerSupported,
   getUnsupportedReason,
 } from "@/modules/webcontainers/lib/support";
+import { useCollaboration } from "@/modules/collaboration/hooks/useCollaboration";
+import CollaboratorsPresence from "@/modules/collaboration/components/collaborators-presence";
+import ShareButton from "@/modules/collaboration/components/share-button";
+import type { RemoteCodeChange } from "@/modules/collaboration/types";
+import { useCurrentUser } from "@/modules/auth/hooks/use-current-user";
 import {
   AlertCircle,
   Bot,
@@ -184,6 +189,62 @@ const MainPlaygroundPage = () => {
 
   const activeFile = openFiles.find((file) => file.id === activeFileId);
   const hasUnsavedChanges = openFiles.some((file) => file.hasUnsavedChanges);
+
+  // ---- Real-time collaboration -------------------------------------------
+  const currentUser = useCurrentUser();
+
+  // Tracks the last content we applied from a remote peer per file, so the
+  // resulting editor onChange is recognised as an echo and not rebroadcast.
+  const lastRemoteContentRef = useRef<Map<string, string>>(new Map());
+
+  const handleRemoteCodeChange = useCallback(
+    (change: RemoteCodeChange) => {
+      lastRemoteContentRef.current.set(change.fileId, change.content);
+      updateFileContent(change.fileId, change.content);
+    },
+    [updateFileContent]
+  );
+
+  const { isConnected, collaborators, broadcastCodeChange, setActiveFile } =
+    useCollaboration({
+      roomId: id,
+      user: currentUser?.id
+        ? {
+            id: currentUser.id,
+            name: currentUser.name || currentUser.email || "Anonymous",
+            image: currentUser.image,
+          }
+        : null,
+      onRemoteCodeChange: handleRemoteCodeChange,
+    });
+
+  // Broadcast which file the local user is viewing so peers see it in presence.
+  useEffect(() => {
+    if (!activeFile) {
+      setActiveFile(null, null);
+      return;
+    }
+    setActiveFile(
+      activeFileId,
+      `${activeFile.filename}.${activeFile.fileExtension}`
+    );
+  }, [activeFileId, activeFile, setActiveFile]);
+
+  // Wraps a local editor change: apply locally, then broadcast unless it is an
+  // echo of a change we just received from a peer.
+  const handleEditorContentChange = useCallback(
+    (value: string) => {
+      if (!activeFileId) return;
+      const echoed = lastRemoteContentRef.current.get(activeFileId) === value;
+      if (echoed) {
+        lastRemoteContentRef.current.delete(activeFileId);
+      } else {
+        broadcastCodeChange(activeFileId, value);
+      }
+      updateFileContent(activeFileId, value);
+    },
+    [activeFileId, broadcastCodeChange, updateFileContent]
+  );
 
   const handleFileSelect = (file: TemplateFile) => {
     openFile(file);
@@ -393,6 +454,14 @@ const MainPlaygroundPage = () => {
                 </p>
               </div>
 
+              <div className="flex items-center gap-2">
+                <CollaboratorsPresence
+                  collaborators={collaborators}
+                  isConnected={isConnected}
+                />
+                <ShareButton />
+              </div>
+
               <div className="flex items-center gap-1">
                 <Tooltip>
                   <TooltipTrigger>
@@ -510,9 +579,7 @@ const MainPlaygroundPage = () => {
                       <PlaygroundEditor
                         activeFile={activeFile}
                         content={activeFile?.content || ""}
-                        onContentChange={(value) => 
-                          activeFileId && updateFileContent(activeFileId , value)
-                        }
+                        onContentChange={handleEditorContentChange}
                         suggestion={aiSuggestions.suggestion}
                         suggestionLoading={aiSuggestions.isLoading}
                         suggestionPosition={aiSuggestions.position}
