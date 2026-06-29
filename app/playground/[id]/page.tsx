@@ -34,7 +34,13 @@ import {
   TemplateFolder,
 } from "@/modules/playground/lib/path-to-json";
 import WebContainerPreview from "@/modules/webcontainers/components/webcontainer-preview";
+import WebContainerFallback from "@/modules/webcontainers/components/webcontainer-fallback";
 import { useWebContainer } from "@/modules/webcontainers/hooks/useWebContainer";
+import { ErrorBoundary } from "@/components/error-boundary";
+import {
+  isWebContainerSupported,
+  getUnsupportedReason,
+} from "@/modules/webcontainers/lib/support";
 import {
   AlertCircle,
   Bot,
@@ -57,6 +63,13 @@ import { toast } from "sonner";
 const MainPlaygroundPage = () => {
   const { id } = useParams<{ id: string }>();
   const [isPreviewVisible, setIsPreviewVisible] = useState(true);
+
+  // WebContainers need a cross-origin-isolated Chromium browser. Detect support
+  // on the client so we can show a friendly fallback instead of a hard crash.
+  const [webContainerSupported, setWebContainerSupported] = useState(true);
+  useEffect(() => {
+    setWebContainerSupported(isWebContainerSupported());
+  }, []);
 
   const { playgroundData, templateData, isLoading, error, saveTemplateData } =
     usePlayground(id);
@@ -518,15 +531,37 @@ const MainPlaygroundPage = () => {
                       <>
                         <ResizableHandle />
                         <ResizablePanel defaultSize={50}>
-                          <WebContainerPreview
-                            templateData={templateData}
-                            instance={instance}
-                            writeFileSync={writeFileSync}
-                            isLoading={containerLoading}
-                            error={containerError}
-                            serverUrl={serverUrl!}
-                            forceResetup={false}
-                          />
+                          {webContainerSupported ? (
+                            <ErrorBoundary
+                              fallback={(err, reset) => (
+                                <WebContainerFallback
+                                  message={
+                                    err.message ||
+                                    "The in-browser preview crashed unexpectedly."
+                                  }
+                                  onRetry={reset}
+                                />
+                              )}
+                            >
+                              <WebContainerPreview
+                                templateData={templateData}
+                                instance={instance}
+                                writeFileSync={writeFileSync}
+                                isLoading={containerLoading}
+                                error={containerError}
+                                serverUrl={serverUrl!}
+                                forceResetup={false}
+                              />
+                            </ErrorBoundary>
+                          ) : (
+                            <WebContainerFallback
+                              unsupported
+                              message={
+                                getUnsupportedReason() ??
+                                "The in-browser preview is not supported in this browser."
+                              }
+                            />
+                          )}
                         </ResizablePanel>
                       </>
                     )}
