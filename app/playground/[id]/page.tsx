@@ -208,30 +208,40 @@ const MainPlaygroundPage = () => {
     [updateFileContent]
   );
 
-  const { isConnected, collaborators, broadcastCodeChange, setActiveFile } =
-    useCollaboration({
-      roomId: id,
-      user: currentUser?.id
+  // Memoize so the object reference stays stable across re-renders; prevents
+  // useCollaboration's effect from restarting every time the parent re-renders.
+  const collabUser = React.useMemo(
+    () =>
+      currentUser?.id
         ? {
             id: currentUser.id,
             name: currentUser.name || currentUser.email || "Anonymous",
-            image: currentUser.image,
+            image: currentUser.image ?? undefined,
           }
         : null,
+    [currentUser?.id, currentUser?.name, currentUser?.email, currentUser?.image]
+  );
+
+  const { isConnected, collaborators, broadcastCodeChange, setActiveFile } =
+    useCollaboration({
+      roomId: id,
+      user: collabUser,
       onRemoteCodeChange: handleRemoteCodeChange,
     });
 
   // Broadcast which file the local user is viewing so peers see it in presence.
+  // Depend on primitive values, not the activeFile object reference, to avoid
+  // triggering on every render when openFiles array is reconstructed.
+  const activeFileName = activeFile
+    ? `${activeFile.filename}.${activeFile.fileExtension}`
+    : null;
   useEffect(() => {
-    if (!activeFile) {
+    if (!activeFileId || !activeFileName) {
       setActiveFile(null, null);
       return;
     }
-    setActiveFile(
-      activeFileId,
-      `${activeFile.filename}.${activeFile.fileExtension}`
-    );
-  }, [activeFileId, activeFile, setActiveFile]);
+    setActiveFile(activeFileId, activeFileName);
+  }, [activeFileId, activeFileName, setActiveFile]);
 
   // Wraps a local editor change: apply locally, then broadcast unless it is an
   // echo of a change we just received from a peer.

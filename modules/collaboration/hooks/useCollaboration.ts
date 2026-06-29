@@ -98,8 +98,9 @@ export function useCollaboration({
       socket.off(COLLAB_EVENTS.REMOTE_CURSOR_CHANGE, handleRemoteCursor);
       setCollaborators([]);
     };
-    // user.id/name/image are primitives; depend on them rather than the object.
-  }, [active, roomId, user?.id, user?.name, user?.image, user]);
+    // user.id/name/image are primitives — depend on them, not the object reference,
+    // so an inline object literal passed by the caller does not restart the effect.
+  }, [active, roomId, user?.id, user?.name, user?.image]);
 
   const broadcastCodeChange = useCallback(
     (fileId: string, content: string) => {
