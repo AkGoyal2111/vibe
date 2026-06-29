@@ -512,8 +512,11 @@ export const AIChatSidePanel: React.FC<AIChatSidePanelProps> = ({
                                                     remarkPlugins={[remarkGfm, remarkMath]}
                                                     rehypePlugins={[rehypeKatex]}
                                                     components={{
-                                                        code: ({ children, className, inline }) => {
-                                                            if (inline) {
+                                                        code: ({ children, className }) => {
+                                                            // react-markdown v10 dropped the `inline` prop; block code
+                                                            // is tagged with a `language-*` class, inline code is not.
+                                                            const isInline = !className?.includes("language-");
+                                                            if (isInline) {
                                                                 return (
                                                                     <code className="bg-zinc-800 px-1 py-0.5 rounded text-sm">
                                                                         {children}
