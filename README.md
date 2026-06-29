@@ -1,107 +1,199 @@
-# 🧠 Vibecode Editor – AI-Powered Web IDE
+# 🧠 Vibecode Editor – AI-Powered, Collaborative Web IDE
 
 ![Vibecode Editor Thumbnail](public/vibe-code-editor-thumbnaail.svg)
 
-**Vibecode Editor** is a blazing-fast, AI-integrated web IDE built entirely in the browser using **Next.js App Router**, **WebContainers**, **Monaco Editor**, and **local LLMs via Ollama**. It offers real-time code execution, an AI-powered chat assistant, and support for multiple tech stacks — all wrapped in a stunning developer-first UI.
+**Vibecode Editor** is a browser-based IDE built with **Next.js (App Router)**,
+**WebContainers**, and the **Monaco Editor**. It runs real Node.js projects
+entirely in the browser, offers **AI-powered code completion and chat** via the
+**Google Gemini API**, and supports **real-time multiplayer editing** through a
+Socket.io collaboration server.
 
 ---
 
 ## 🚀 Features
 
-- 🔐 **OAuth Login with NextAuth** – Supports Google & GitHub login.
-- 🎨 **Modern UI** – Built with TailwindCSS & ShadCN UI.
-- 🌗 **Dark/Light Mode** – Seamlessly toggle between themes.
-- 🧱 **Project Templates** – Choose from React, Next.js, Express, Hono, Vue, or Angular.
-- 🗂️ **Custom File Explorer** – Create, rename, delete, and manage files/folders easily.
-- 🖊️ **Enhanced Monaco Editor** – Syntax highlighting, formatting, keybindings, and AI autocomplete.
-- 💡 **AI Suggestions with Ollama** – Local models give you code completion on `Ctrl + Space` or double `Enter`. Accept with `Tab`.
-- ⚙️ **WebContainers Integration** – Instantly run frontend/backend apps right in the browser.
-- 💻 **Terminal with xterm.js** – Fully interactive embedded terminal experience.
-- 🤖 **AI Chat Assistant** – Share files with the AI and get help, refactors, or explanations.
+- 🔐 **OAuth Login with NextAuth v5** – Google & GitHub with automatic
+  multi-provider account linking.
+- 🧱 **Project Templates** – React, Next.js, Express, Hono, Vue, or Angular.
+- 🗂️ **Custom File Explorer** – Create, rename, delete and manage files/folders,
+  with open-tab and unsaved-change tracking (Zustand store).
+- 🖊️ **Enhanced Monaco Editor** – Syntax highlighting, formatting, keybindings.
+- 💡 **AI Code Completion (Gemini)** – Context-aware inline suggestions. The
+  server analyses the surrounding code (language, framework, scope, incomplete
+  patterns) before prompting the model. Trigger on `Ctrl + Space`, accept with `Tab`.
+- 🤖 **AI Chat Assistant (Gemini)** – Ask for explanations, refactors and fixes.
+- 👥 **Real-time Collaboration** – Share a playground link and edit together.
+  Live presence (who's here / what file they're on) and code sync over WebSockets.
+- ⚙️ **WebContainers Integration** – Run frontend/backend apps in-browser, with
+  graceful fallback on unsupported browsers.
+- 💻 **Interactive Terminal** – Embedded terminal via xterm.js.
 
 ---
 
 ## 🧱 Tech Stack
 
-| Layer         | Technology                                   |
-|---------------|----------------------------------------------|
-| Framework     | Next.js 15 (App Router)                      |
-| Styling       | TailwindCSS, ShadCN UI                       |
-| Language      | TypeScript                                   |
-| Auth          | NextAuth (Google + GitHub OAuth)             |
-| Editor        | Monaco Editor                                |
-| AI Suggestion | Ollama (LLMs running locally via Docker)     |
-| Runtime       | WebContainers                                |
-| Terminal      | xterm.js                                     |
-| Database      | MongoDB (via DATABASE_URL)                   |
+| Layer          | Technology                                   |
+|----------------|----------------------------------------------|
+| Framework      | Next.js 15 (App Router) + custom Node server |
+| Styling        | TailwindCSS, ShadCN UI                       |
+| Language       | TypeScript                                   |
+| Auth           | NextAuth v5 (Google + GitHub OAuth, JWT)     |
+| Editor         | Monaco Editor                                |
+| AI             | Google Gemini API (`gemini-1.5-flash`)       |
+| Realtime       | Socket.io (custom server)                    |
+| Runtime        | WebContainers                                |
+| Terminal       | xterm.js                                     |
+| Database / ORM | MongoDB via Prisma                           |
+| State          | Zustand                                      |
+| Testing        | Vitest                                       |
+
+---
+
+## 🏗️ Architecture
+
+```
+                          ┌─────────────────────────────┐
+                          │        Browser (client)      │
+                          │  Monaco · WebContainers ·    │
+                          │  Zustand store · socket.io-  │
+                          │  client                      │
+                          └───────┬─────────────┬────────┘
+                                  │ HTTP        │ WebSocket
+                                  ▼             ▼
+              ┌───────────────────────────────────────────────┐
+              │      Custom Node server (server.ts)            │
+              │  ┌─────────────────┐   ┌────────────────────┐  │
+              │  │  Next.js (SSR /  │   │  Socket.io server  │  │
+              │  │  App Router /    │   │  /api/socket       │  │
+              │  │  API routes)     │   │  RoomManager       │  │
+              │  └────────┬─────────┘   └─────────┬──────────┘  │
+              └───────────┼───────────────────────┼────────────┘
+                          │                        │
+              ┌───────────▼───────┐     ┌──────────▼──────────┐
+              │  Gemini API        │     │  In-memory presence │
+              │  (chat + complete) │     │  + code relay       │
+              └────────────────────┘     └─────────────────────┘
+                          │
+              ┌───────────▼────────┐
+              │  MongoDB (Prisma)  │
+              └────────────────────┘
+```
+
+Why a **custom server**? Next.js route handlers run per-request and can't hold
+the long-lived WebSocket connections collaboration needs. `server.ts` wraps
+Next.js in a plain Node HTTP server and attaches Socket.io on the same origin
+(`/api/socket`).
+
+---
+
+## 👥 Real-time Collaboration
+
+- **Rooms**: one room per playground id. Open the same playground URL (via the
+  **Share** button) to join.
+- **Presence**: the header shows avatars of everyone in the room, with a live
+  connection dot and the file each person is editing.
+- **Sync**: local edits are broadcast to peers and applied through the file
+  store. An echo guard prevents rebroadcast loops.
+- **Conflict strategy**: currently **last-write-wins per file**. This is simple
+  and predictable; the natural next step is a CRDT (e.g. Yjs + `y-monaco`) for
+  true concurrent character-level merging — see the roadmap below.
+
+The room/presence logic lives in a dependency-free
+[`RoomManager`](modules/collaboration/server/room-manager.ts) so it can be unit
+tested in isolation.
+
+---
+
+## 🔒 Security
+
+- **Auth on AI routes**: `/api/chat` and `/api/code-completion` require an
+  authenticated session (401 otherwise).
+- **Rate limiting**: a fixed-window [rate limiter](lib/rate-limit.ts) caps usage
+  per user (20/min chat, 60/min completions) and returns `X-RateLimit-*`
+  headers. Swap the in-memory store for Redis to scale across instances.
+
+---
+
+## 🧪 Testing
+
+[Vitest](https://vitest.dev/) covers the core logic (52 tests):
+
+```bash
+npm test          # run once
+npm run test:watch
+```
+
+Covered: the rate limiter, AI code-context analysis, file-path utilities, the
+Zustand file-explorer store, and the collaboration `RoomManager`.
 
 ---
 
 ## 🛠️ Getting Started
 
-### 1. Clone the Repo
+### 1. Clone & install
 
 ```bash
-git clone https://github.com/your-username/vibecode-editor.git
-cd vibecode-editor
-````
-
-### 2. Install Dependencies
-
-```bash
+git clone https://github.com/AkGoyal2111/VibeCodeEditor.git
+cd VibeCodeEditor
 npm install
 ```
 
-### 3. Set Up Environment Variables
-
-Create a `.env.local` file using the template:
+### 2. Configure environment
 
 ```bash
 cp .env.example .env.local
 ```
 
-Then, fill in your credentials:
+Fill in your credentials (see [`.env.example`](.env.example)):
 
 ```env
-AUTH_SECRET=your_auth_secret
-AUTH_GOOGLE_ID=your_google_client_id
-AUTH_GOOGLE_SECRET=your_google_secret
-AUTH_GITHUB_ID=your_github_client_id
-AUTH_GITHUB_SECRET=your_github_secret
 DATABASE_URL=your_mongodb_connection_string
-NEXTAUTH_URL=http://localhost:3000
+AUTH_SECRET=your_auth_secret
+AUTH_GOOGLE_ID=...
+AUTH_GOOGLE_SECRET=...
+AUTH_GITHUB_ID=...
+AUTH_GITHUB_SECRET=...
+GEMINI_API_KEY=your_gemini_api_key
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-### 4. Start Local Ollama Model
+Get a Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
 
-Make sure [Ollama](https://ollama.com/) and Docker are installed, then run:
+### 3. Generate the Prisma client
 
 ```bash
-ollama run codellama
+npx prisma generate
 ```
 
-Or use your preferred model that supports code generation.
-
-### 5. Run the Development Server
+### 4. Run the dev server (Next.js + Socket.io)
 
 ```bash
 npm run dev
 ```
 
-Visit `http://localhost:3000` in your browser.
+Visit `http://localhost:3000`.
 
+> The app runs through a **custom Node server** (`server.ts`) to host Socket.io.
+> Because of this it needs a long-running Node host (Render, Railway, Fly.io, a
+> VM/container) rather than a purely serverless platform. `npm run dev:next` is
+> available if you want plain Next.js without collaboration.
 
 ---
 
 ## 🎯 Keyboard Shortcuts
 
-* `Ctrl + Space` or `Double Enter`: Trigger AI suggestions
-* `Tab`: Accept AI suggestion
-* `/`: Open Command Palette (if implemented)
+* `Ctrl + Space` / `Double Enter` – Trigger AI suggestions
+* `Tab` – Accept AI suggestion
+* `Ctrl + S` / `Ctrl + Shift + S` – Save / Save all
 
 ---
 
+## 🗺️ Roadmap
 
+- [ ] CRDT-based concurrent editing (Yjs + `y-monaco`) with live remote cursors
+- [ ] Redis-backed rate limiting + presence for horizontal scaling
+- [ ] E2E tests (Playwright) for the editor and collaboration flows
+- [ ] Live demo deployment
 
 ---
 
@@ -114,9 +206,8 @@ This project is licensed under the [MIT License](LICENSE).
 ## 🙏 Acknowledgements
 
 * [Monaco Editor](https://microsoft.github.io/monaco-editor/)
-* [Ollama](https://ollama.com/) – for offline LLMs
 * [WebContainers](https://webcontainers.io/)
+* [Socket.io](https://socket.io/)
+* [Google Gemini](https://ai.google.dev/)
 * [xterm.js](https://xtermjs.org/)
 * [NextAuth.js](https://next-auth.js.org/)
-
-```
