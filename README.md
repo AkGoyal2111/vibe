@@ -24,6 +24,8 @@ Socket.io collaboration server.
 - 🤖 **AI Chat Assistant (Gemini)** – Ask for explanations, refactors and fixes.
 - 👥 **Real-time Collaboration** – Share a playground link and edit together.
   Live presence (who's here / what file they're on) and code sync over WebSockets.
+- 🎥 **Video/Audio Calls** – Built-in WebRTC mesh calling with mic/camera toggles.
+- 🖌️ **Collaborative Whiteboard** – Shared canvas for sketching ideas together.
 - ⚙️ **WebContainers Integration** – Run frontend/backend apps in-browser, with
   graceful fallback on unsupported browsers.
 - 💻 **Interactive Terminal** – Embedded terminal via xterm.js.
@@ -40,7 +42,7 @@ Socket.io collaboration server.
 | Auth           | NextAuth v5 (Google + GitHub OAuth, JWT)     |
 | Editor         | Monaco Editor                                |
 | AI             | Google Gemini API (`gemini-1.5-flash`)       |
-| Realtime       | Socket.io (custom server)                    |
+| Realtime       | Socket.io (custom server) + WebRTC           |
 | Runtime        | WebContainers                                |
 | Terminal       | xterm.js                                     |
 | Database / ORM | MongoDB via Prisma                           |
@@ -97,10 +99,18 @@ Next.js in a plain Node HTTP server and attaches Socket.io on the same origin
 - **Conflict strategy**: currently **last-write-wins per file**. This is simple
   and predictable; the natural next step is a CRDT (e.g. Yjs + `y-monaco`) for
   true concurrent character-level merging — see the roadmap below.
+- **Video/audio calls**: a **WebRTC mesh** (one peer connection per participant)
+  signalled over the same socket. The server only does signalling —
+  introducing peers and relaying SDP/ICE — while media flows directly P2P.
+  Uses a public STUN server; cross-NAT calls would also need a TURN server.
+- **Whiteboard**: a shared canvas. Strokes use normalised (0..1) coordinates so
+  they render identically regardless of each peer's canvas size, and are stored
+  server-side so late joiners can replay the current board.
 
-The room/presence logic lives in a dependency-free
-[`RoomManager`](modules/collaboration/server/room-manager.ts) so it can be unit
-tested in isolation.
+The collaboration server logic is split into dependency-free, unit-tested
+classes: [`RoomManager`](modules/collaboration/server/room-manager.ts) (presence),
+[`CallRegistry`](modules/collaboration/server/call-registry.ts) (call membership),
+and [`WhiteboardStore`](modules/collaboration/server/whiteboard-store.ts).
 
 ---
 
@@ -116,7 +126,7 @@ tested in isolation.
 
 ## 🧪 Testing
 
-[Vitest](https://vitest.dev/) covers the core logic (52 tests):
+[Vitest](https://vitest.dev/) covers the core logic (65 tests):
 
 ```bash
 npm test          # run once
@@ -124,7 +134,8 @@ npm run test:watch
 ```
 
 Covered: the rate limiter, AI code-context analysis, file-path utilities, the
-Zustand file-explorer store, and the collaboration `RoomManager`.
+Zustand file-explorer store, and the collaboration server classes
+(`RoomManager`, `CallRegistry`, `WhiteboardStore`).
 
 ---
 
@@ -191,6 +202,7 @@ Visit `http://localhost:3000`.
 ## 🗺️ Roadmap
 
 - [ ] CRDT-based concurrent editing (Yjs + `y-monaco`) with live remote cursors
+- [ ] TURN server so video calls work across restrictive NATs
 - [ ] Redis-backed rate limiting + presence for horizontal scaling
 - [ ] E2E tests (Playwright) for the editor and collaboration flows
 - [ ] Live demo deployment
