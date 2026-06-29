@@ -80,7 +80,49 @@ export const COLLAB_EVENTS = {
   USER_LEFT: "collab:user-left",
   REMOTE_CODE_CHANGE: "collab:remote-code-change",
   REMOTE_CURSOR_CHANGE: "collab:remote-cursor-change",
+
+  // ---- WebRTC signalling (mesh audio/video call) ----
+  RTC_JOIN_CALL: "rtc:join-call",
+  RTC_LEAVE_CALL: "rtc:leave-call",
+  RTC_CALL_PARTICIPANTS: "rtc:call-participants",
+  RTC_PEER_JOINED: "rtc:peer-joined",
+  RTC_PEER_LEFT: "rtc:peer-left",
+  RTC_OFFER: "rtc:offer",
+  RTC_ANSWER: "rtc:answer",
+  RTC_ICE_CANDIDATE: "rtc:ice-candidate",
+
+  // ---- Collaborative whiteboard ----
+  WB_DRAW: "wb:draw",
+  WB_CLEAR: "wb:clear",
+  WB_REQUEST_STATE: "wb:request-state",
+  WB_STATE: "wb:state",
 } as const;
+
+// ---- WebRTC payloads -------------------------------------------------------
+
+export interface RtcSignalPayload {
+  /** Target peer socket id the signal is addressed to. */
+  to: string;
+  /** SDP offer/answer or ICE candidate (kept loose to avoid DOM types here). */
+  data: unknown;
+}
+
+export interface RtcRelayedSignal {
+  /** Socket id the signal originated from. */
+  from: string;
+  data: unknown;
+}
+
+// ---- Whiteboard payloads ---------------------------------------------------
+
+export interface WhiteboardStroke {
+  /** Unique id (used to de-duplicate on replay). */
+  id: string;
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  color: string;
+  width: number;
+}
 
 /** A small palette of distinguishable, accessible colours for presence. */
 export const COLLAB_COLORS = [

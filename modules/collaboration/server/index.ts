@@ -1,5 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import { RoomManager } from "./room-manager";
+import { CallRegistry } from "./call-registry";
+import { WhiteboardStore } from "./whiteboard-store";
 import {
   COLLAB_EVENTS,
   colorForUser,
@@ -8,6 +10,8 @@ import {
   type Collaborator,
   type CursorChangePayload,
   type JoinRoomPayload,
+  type RtcSignalPayload,
+  type WhiteboardStroke,
 } from "../types";
 
 /**
@@ -20,6 +24,8 @@ import {
  */
 export function registerCollaboration(io: Server): RoomManager {
   const rooms = new RoomManager();
+  const calls = new CallRegistry();
+  const whiteboards = new WhiteboardStore();
 
   io.on("connection", (socket: Socket) => {
     socket.on(COLLAB_EVENTS.JOIN_ROOM, (payload: JoinRoomPayload) => {
@@ -84,7 +90,80 @@ export function registerCollaboration(io: Server): RoomManager {
       }
     );
 
+    // ---- WebRTC signalling (mesh audio/video) ----------------------------
+
+    socket.on(COLLAB_EVENTS.RTC_JOIN_CALL, ({ roomId }: { roomId: string }) => {
+      if (!roomId) return;
+      const existing = calls.join(roomId, socket.id);
+      // Tell the newcomer who is already on the call (they will send offers).
+      socket.emit(COLLAB_EVENTS.RTC_CALL_PARTICIPANTS, { participants: existing });
+      // Tell existing participants a new peer joined (they wait for the offer).
+      socket
+        .to(roomId)
+        .emit(COLLAB_EVENTS.RTC_PEER_JOINED, { socketId: socket.id });
+    });
+
+    const leaveCall = (roomId: string) => {
+      if (!calls.leave(roomId, socket.id)) return;
+      socket
+        .to(roomId)
+        .emit(COLLAB_EVENTS.RTC_PEER_LEFT, { socketId: socket.id });
+    };
+
+    socket.on(COLLAB_EVENTS.RTC_LEAVE_CALL, ({ roomId }: { roomId: string }) =>
+      leaveCall(roomId)
+    );
+
+    // Relay SDP/ICE directly to the addressed peer.
+    const relaySignal =
+      (event: string) => (payload: RtcSignalPayload) => {
+        if (!payload?.to) return;
+        io.to(payload.to).emit(event, { from: socket.id, data: payload.data });
+      };
+    socket.on(COLLAB_EVENTS.RTC_OFFER, relaySignal(COLLAB_EVENTS.RTC_OFFER));
+    socket.on(COLLAB_EVENTS.RTC_ANSWER, relaySignal(COLLAB_EVENTS.RTC_ANSWER));
+    socket.on(
+      COLLAB_EVENTS.RTC_ICE_CANDIDATE,
+      relaySignal(COLLAB_EVENTS.RTC_ICE_CANDIDATE)
+    );
+
+    // ---- Collaborative whiteboard ----------------------------------------
+
+    socket.on(
+      COLLAB_EVENTS.WB_DRAW,
+      ({ roomId, stroke }: { roomId: string; stroke: WhiteboardStroke }) => {
+        if (!roomId || !stroke) return;
+        whiteboards.addStroke(roomId, stroke);
+        socket.to(roomId).emit(COLLAB_EVENTS.WB_DRAW, { stroke });
+      }
+    );
+
+    socket.on(COLLAB_EVENTS.WB_CLEAR, ({ roomId }: { roomId: string }) => {
+      if (!roomId) return;
+      whiteboards.clear(roomId);
+      io.to(roomId).emit(COLLAB_EVENTS.WB_CLEAR);
+    });
+
+    socket.on(
+      COLLAB_EVENTS.WB_REQUEST_STATE,
+      ({ roomId }: { roomId: string }) => {
+        if (!roomId) return;
+        socket.emit(COLLAB_EVENTS.WB_STATE, {
+          strokes: whiteboards.getStrokes(roomId),
+        });
+      }
+    );
+
+    // ---- Disconnect / leave ----------------------------------------------
+
     const handleLeave = () => {
+      // Clean up any call membership and notify peers.
+      for (const roomId of calls.removeFromAll(socket.id)) {
+        socket
+          .to(roomId)
+          .emit(COLLAB_EVENTS.RTC_PEER_LEFT, { socketId: socket.id });
+      }
+
       const result = rooms.leave(socket.id);
       if (!result) return;
       socket.to(result.roomId).emit(COLLAB_EVENTS.USER_LEFT, {
